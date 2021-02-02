@@ -1,0 +1,1 @@
+worker: java -jar ./build/libs/usnco-lavoisier-1.0-SNAPSHOT-all.jar
