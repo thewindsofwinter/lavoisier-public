@@ -1,16 +1,30 @@
+import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageChannel;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
-import java.awt.*;
+import java.awt.Color;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Random;
 
 public class LavoisierListener extends ListenerAdapter {
 
-    private static final String BOT_VERSION = "Lavoisier v0.2";
+    // Dumb global constants
+    // Random token below, not mine
+    private static final long CREATOR = 8952138908519L;
+    private static final String BOT_VERSION = "Lavoisier v0.3";
     private static final String ICON_URL = "https://cdn.discordapp.com/attachments/536299955178962965/771746782190764032/science-2652279_1280.png";
+    private static final String CSV_URL = "https://raw.githubusercontent.com/thewindsofwinter/usnco-problems/master/SolutionTable.csv";
     private static final char PREFIX = '$';
     private static final int MESSAGE_COLOR = new Color(0, 200, 200).getRGB();
     private static final MessageEmbed.Footer FOOTER = new MessageEmbed.Footer(BOT_VERSION, ICON_URL, null);
@@ -18,8 +32,100 @@ public class LavoisierListener extends ListenerAdapter {
     private Random rng = new Random();
     private static final int[] ERROR_CODE = {-1, -1};
 
+    private HashMap<Integer, String> data = new HashMap<>();
+    private JDA instance;
 
-    private int[] setYearRestriction(Message msg, boolean yearRestriction, String parameter) {
+    private int lowerYear = 1999;
+    private int upperYear = 2020;
+    private boolean yearRestriction = false;
+
+    private int lowerProblem = 1;
+    private int upperProblem = 60;
+    private boolean problemRestriction = false;
+    private boolean partTwo = false;
+
+    private String[] header;
+
+    /**
+     * A constructor that adds a reference to the parent JDA instance
+     *
+     * @param jda the instance of the JDA used to get users
+     */
+    LavoisierListener(JDA jda) {
+        instance = jda;
+    }
+
+    /**
+     * Load answer data into program
+     */
+    private void loadData() {
+        try {
+            URL source = new URL(CSV_URL);
+            URLConnection connect = source.openConnection();
+            BufferedReader f = new BufferedReader(new InputStreamReader(connect.getInputStream()));
+
+            header = f.readLine().split(",");
+            // Replace third header with Difficulty Rating
+            header[3] = "Difficulty";
+
+            String line;
+            while((line = f.readLine()) != null) {
+                String[] row = line.split(",");
+                // Section: 0, 1, 2, 3 for now, 3 will be WCC
+
+                int problemNumber = Integer.parseInt(row[0]);
+                int section;
+                int year;
+                String exam = row[1];
+                String answer = row[2];
+
+                if(row.length > 3) {
+                    answer += "~" + row[3];
+                }
+
+                if(exam.matches("USNCO .*")) {
+                    exam = exam.substring(6);
+                    year = Integer.parseInt(exam.substring(1, 5));
+                    if(exam.charAt(0) == 'N') {
+                        section = 1;
+                    }
+                    else {
+                        section = 0;
+                    }
+                }
+                else {
+                    year = Integer.parseInt(exam.substring(4, 8));
+                    section = 3;
+                }
+
+                int id = year*240 + problemNumber*4 + section;
+                data.put(id, answer);
+            }
+        }
+        catch (Exception e) {
+            // Solution given by StackOverflow: https://stackoverflow.com/questions/1149703/
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            String sStackTrace = sw.toString().substring(0, 800); // stack trace as a string
+
+            // Send error messages to me
+            instance.retrieveUserById(CREATOR).queue(
+                    user -> user.openPrivateChannel().queue(
+                            channel -> channel.sendMessage(sStackTrace).queue()));
+
+        }
+    }
+
+    /**
+     * A method to set a restriction on the years queried
+     *
+     * @param msg the overall message sent
+     * @param parameter the parameter to set years
+     *
+     * @return a pair of years, lower and upper, or an error code {-1, -1}
+     */
+    private int[] setYearRestriction(Message msg, String parameter) {
         if(yearRestriction) {
             MessageChannel ch = msg.getChannel();
             ch.sendMessage("`Error: Invalid query [tried to set -y twice]. Query terminated.`").queue();
@@ -33,31 +139,38 @@ public class LavoisierListener extends ListenerAdapter {
         }
         else {
             String[] years = parameter.split("-");
-            int lowerYear = Integer.parseInt(years[0]);
-            int upperYear = Integer.parseInt(years[0]);
+            int lower = Integer.parseInt(years[0]);
+            int upper = Integer.parseInt(years[0]);
 
             if(years.length > 1) {
-                upperYear = Integer.parseInt(years[1]);
+                upper = Integer.parseInt(years[1]);
             }
 
-            if(lowerYear > upperYear) {
+            if(lower > upper) {
                 MessageChannel ch = msg.getChannel();
                 ch.sendMessage("`Error: Invalid query [year range invalid]. Query terminated.`").queue();
                 return ERROR_CODE;
             }
 
-            if(lowerYear < 1999 || upperYear > 2020) {
+            if(lower < 1999 || upper > 2020) {
                 MessageChannel ch = msg.getChannel();
                 ch.sendMessage("`Error: Invalid query [years not between 1999-2020]. Query terminated.`").queue();
                 return ERROR_CODE;
             }
 
-            return new int[]{lowerYear, upperYear};
+            return new int[]{lower, upper};
         }
     }
 
-
-    private int[] setProblemRestriction(Message msg, boolean problemRestriction, String parameter, boolean partTwo) {
+    /**
+     * A method to set a restriction on the problems queried
+     *
+     * @param msg the overall message sent
+     * @param parameter the parameter to set problem bounds
+     *
+     * @return a pair of problems, lower and upper, or an error code {-1, -1}
+     */
+    private int[] setProblemRestriction(Message msg, String parameter) {
         int maxProblem = 60;
         if(partTwo) {
             // If it's part II
@@ -77,29 +190,35 @@ public class LavoisierListener extends ListenerAdapter {
         }
         else {
             String[] problems = parameter.split("-");
-            int lowerProblem = Integer.parseInt(problems[0]);
-            int upperProblem = Integer.parseInt(problems[0]);
+            int lower = Integer.parseInt(problems[0]);
+            int upper = Integer.parseInt(problems[0]);
 
             if(problems.length > 1) {
-                upperProblem = Integer.parseInt(problems[1]);
+                upper = Integer.parseInt(problems[1]);
             }
 
-            if(lowerProblem > upperProblem) {
+            if(lower > upper) {
                 MessageChannel ch = msg.getChannel();
                 ch.sendMessage("`Error: Invalid query [problem range invalid]. Query terminated.`").queue();
                 return ERROR_CODE;
             }
 
-            if(lowerProblem < 1 || upperProblem > maxProblem) {
+            if(lower < 1 || upper > maxProblem) {
                 MessageChannel ch = msg.getChannel();
                 ch.sendMessage("`Error: Invalid query [problem not between 1-" + maxProblem + "]. Query terminated.`").queue();
                 return ERROR_CODE;
             }
 
-            return new int[]{lowerProblem, upperProblem};
+            return new int[]{lower, upper};
         }
     }
 
+    /**
+     * A method to print out the help message
+     *
+     * @param msg The overall message sent
+     * @param parameters The parameters on the help message
+     */
     private void printHelpMessage(Message msg, String[] parameters) {
         // No parameters
         if(parameters.length == 1) {
@@ -165,12 +284,28 @@ public class LavoisierListener extends ListenerAdapter {
         }
     }
 
+    /**
+     * A method to get a random value within a range
+     *
+     * @param lowerBound the lower bound
+     * @param upperBound the upper bound
+     *
+     * @return a random integer within the given range
+     */
     private int getValue(int lowerBound, int upperBound) {
         int problemRange = upperBound - lowerBound + 1;
 
         return lowerBound + rng.nextInt(problemRange);
     }
 
+    /**
+     * A method to query a USNCO problem
+     *
+     * @param msg the original message
+     * @param actualYear the year of the problem
+     * @param actualProblem the problem number of the problem
+     * @param section the test the problem was on (Locals, Part I, or Part II)
+     */
     private void queryImage(Message msg, int actualYear, int actualProblem, int section) {
         // Query from GitHub
         String sectionVal;
@@ -191,68 +326,157 @@ public class LavoisierListener extends ListenerAdapter {
                 break;
         }
 
+        List<MessageEmbed.Field> fields = new ArrayList<>();
+        int problemID = actualYear*240 + actualProblem*4 + section;
+
+        fields.add(new MessageEmbed.Field(header[1], actualYear + " USNCO "
+                + sectionDescription, false));
+        fields.add(new MessageEmbed.Field(header[0], "" + actualProblem, true));
+
+        if(data.containsKey(problemID)) {
+            String[] info = data.get(problemID).split("~");
+
+            fields.add(new MessageEmbed.Field(header[2], "||" + info[0] + "||", true));
+
+            if(info.length < 2) {
+                fields.add(new MessageEmbed.Field(header[3], "Unrated", true));
+            }
+            else {
+                double percent = Double.parseDouble(info[1].substring(0, info[1].length() - 1));
+                if(percent > 66.6) {
+                    fields.add(new MessageEmbed.Field(header[3], "Easy (>66%)", true));
+                }
+                else if(percent > 50.0) {
+                    fields.add(new MessageEmbed.Field(header[3], "Normal (>50%)", true));
+                }
+                else if(percent > 33.3) {
+                    fields.add(new MessageEmbed.Field(header[3], "Hard (<50%)", true));
+                }
+                else {
+                    fields.add(new MessageEmbed.Field(header[3], "Insane (<33%)", true));
+                }
+            }
+        }
+
         String url = "https://raw.githubusercontent.com/thewindsofwinter/usnco-problems/master/tests/"
                 + sectionVal + "/" + actualYear + "/" + actualProblem + ".png";
 
         MessageEmbed.ImageInfo image = new MessageEmbed.ImageInfo(url, null, 1200, 673);
 
-        MessageEmbed embed = new MessageEmbed(null, "*Problem #" + actualProblem + ", " + actualYear + " USNCO "
-                + sectionDescription + "*",
+        MessageEmbed embed = new MessageEmbed(null, null,
                 null, null,
                 msg.getTimeCreated().plusSeconds(5), MESSAGE_COLOR, null, null,
-                AUTHOR_INFO, null, FOOTER, image, null);
+                AUTHOR_INFO, null, FOOTER, image, fields);
 
         MessageChannel ch = msg.getChannel();
         ch.sendMessage(embed).queue();
     }
 
-    private void queryProblems(Message msg, String[] parameters) {
-        // Bounds on the problem number and year number
-        int lowerYear = 1999;
-        int upperYear = 2020;
-        boolean yearRestriction = false;
+    /**
+     * A method to reset year, problem, and restriction parameters to their original value
+     */
+    private void resetParams() {
+        lowerYear = 1999;
+        upperYear = 2020;
+        yearRestriction = false;
 
-        int lowerProblem = 1;
-        int upperProblem = 60;
-        boolean problemRestriction = false;
+        lowerProblem = 1;
+        upperProblem = 60;
+        problemRestriction = false;
+        partTwo = false;
+    }
+
+    /**
+     * A method to restrict the year range problems are queried from
+     *
+     * @param msg the original message sent
+     * @param parameter the parameter included in the message
+     * @return 0 if the method was successful, -1 if there was an error
+     */
+    private int restrictYear(Message msg, String parameter) {
+        int[] years = setYearRestriction(msg, parameter);
+
+        if (years[0] == ERROR_CODE[0]) {
+            return -1;
+        }
+
+        yearRestriction = true;
+        lowerYear = years[0];
+        upperYear = years[1];
+        return 0;
+    }
+
+    /**
+     * A method to restrict the problem range problems are queried from
+     *
+     * @param msg the original message sent
+     * @param parameter the parameter included in the message
+     * @return 0 if the method was successful, -1 if there was an error
+     */
+    private int restrictProblem(Message msg, String parameter) {
+        int[] problems = setProblemRestriction(msg, parameter);
+
+        if (problems[0] == ERROR_CODE[0]) {
+            return -1;
+        }
+
+        problemRestriction = true;
+        lowerProblem = problems[0];
+        upperProblem = problems[1];
+        return 0;
+    }
+
+    /**
+     * A method to restrict the test (local, part I, part II) our problems are queried from
+     *
+     * @param parameter a parameter for problem query
+     * @return the restricted section
+     */
+    private int restrictSection(String parameter) {
+        int sec = Integer.parseInt(parameter);
+
+        if(sec == 2) {
+            partTwo = true;
+            upperProblem = 8;
+        }
+
+        return sec;
+    }
+
+    /**
+     * A method to query a problem based on user input
+     *
+     * @param msg the user's message
+     * @param parameters the parameters in the message
+     */
+    private void queryProblems(Message msg, String[] parameters) {
+        if(data.isEmpty())
+            loadData();
+
+        // Bounds on the problem number and year number
+        resetParams();
 
         int section = -1;
-        boolean partTwo = false;
-
         int currentOption = -1;
 
+        int success = 0;
         for(int i = 1; i < parameters.length; i++) {
+            if(success == -1)
+                return;
+
             String parameter = parameters[i];
 
             switch(currentOption) {
                 case 0:
-                    int[] years = setYearRestriction(msg, yearRestriction, parameter);
-
-                    if (years[0] == ERROR_CODE[0]) {
-                        return;
-                    }
-
-                    yearRestriction = true;
-                    lowerYear = years[0];
-                    upperYear = years[1];
+                    success = restrictYear(msg, parameter);
                     currentOption = -1;
                     break;
                 case 1:
-                    int[] problems = setProblemRestriction(msg, problemRestriction, parameter, partTwo);
-
-                    if (problems[0] == ERROR_CODE[0]) {
-                        return;
-                    }
-
-                    problemRestriction = true;
-                    lowerProblem = problems[0];
-                    upperProblem = problems[1];
+                    success = restrictProblem(msg, parameter);
                     currentOption = -1;
                     break;
                 case 2:
-                    section = Integer.parseInt(parameter);
-                    partTwo = (section == 2);
-                    upperProblem = 8;
+                    section = restrictSection(parameter);
                     currentOption = -1;
                     break;
                 default:
@@ -281,6 +505,13 @@ public class LavoisierListener extends ListenerAdapter {
         queryImage(msg, year, problem, section);
     }
 
+
+    /**
+     * A method to handle commands overall
+     *
+     * @param msg the original message of the user
+     * @param commands the content of the user command
+     */
     private void handleCommand(Message msg, String commands) {
         String[] tokens = commands.split(" ");
         String command = tokens[0];
@@ -298,6 +529,11 @@ public class LavoisierListener extends ListenerAdapter {
         }
     }
 
+    /**
+     * Handle message sending and receiving
+     *
+     * @param event the event when the message is received
+     */
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
         if(event.getAuthor().isBot())

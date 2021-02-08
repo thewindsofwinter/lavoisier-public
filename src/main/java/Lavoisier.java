@@ -9,7 +9,7 @@ public class Lavoisier {
         JDA lavoisier = JDABuilder.createDefault("[INSERT TOKEN HERE]").build();
 
         // Basic functionality
-        lavoisier.awaitReady().addEventListener(new LavoisierListener());
+        lavoisier.awaitReady().addEventListener(new LavoisierListener(lavoisier));
         lavoisier.awaitReady().getPresence().setActivity(Activity.watching("over you all! $help"));
     }
 }
