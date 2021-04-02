@@ -22,7 +22,7 @@ public class LavoisierListener extends ListenerAdapter {
     // Dumb global constants
     // Random token below, not mine
     private static final long CREATOR = 8952138908519L;
-    private static final String BOT_VERSION = "Lavoisier v0.3";
+    private static final String BOT_VERSION = "Lavoisier v0.3.1";
     private static final String ICON_URL = "https://cdn.discordapp.com/attachments/536299955178962965/771746782190764032/science-2652279_1280.png";
     private static final MessageEmbed.ImageInfo EXAMPLE_IMAGE =
             new MessageEmbed.ImageInfo("https://raw.githubusercontent.com/thewindsofwinter/usnco-problems/master/example.PNG",null,800,500);
