@@ -24,11 +24,19 @@ public class LavoisierListener extends ListenerAdapter {
     private static final long CREATOR = 8952138908519L;
     private static final String BOT_VERSION = "Lavoisier v0.3";
     private static final String ICON_URL = "https://cdn.discordapp.com/attachments/536299955178962965/771746782190764032/science-2652279_1280.png";
+    private static final MessageEmbed.ImageInfo EXAMPLE_IMAGE =
+            new MessageEmbed.ImageInfo("https://raw.githubusercontent.com/thewindsofwinter/usnco-problems/master/example.PNG",null,800,500);
     private static final String CSV_URL = "https://raw.githubusercontent.com/thewindsofwinter/usnco-problems/master/SolutionTable.csv";
+
     private static final char PREFIX = '$';
     private static final int MESSAGE_COLOR = new Color(0, 200, 200).getRGB();
     private static final MessageEmbed.Footer FOOTER = new MessageEmbed.Footer(BOT_VERSION, ICON_URL, null);
-    private static final MessageEmbed.AuthorInfo AUTHOR_INFO = new MessageEmbed.AuthorInfo("Lavoisier - a bot for all things USNCO", null, null, null);
+    private static final MessageEmbed.AuthorInfo AUTHOR_INFO =
+            new MessageEmbed.AuthorInfo("Lavoisier - a bot for all things USNCO", null, null, null);
+
+    private static final int[] LOWER_YEARS = {2000, 1999, 2000};
+    private static final int[] UPPER_YEARS = {2021, 2020, 2020};
+
     private Random rng = new Random();
     private static final int[] ERROR_CODE = {-1, -1};
 
@@ -36,7 +44,7 @@ public class LavoisierListener extends ListenerAdapter {
     private JDA instance;
 
     private int lowerYear = 1999;
-    private int upperYear = 2020;
+    private int upperYear = 2021;
     private boolean yearRestriction = false;
 
     private int lowerProblem = 1;
@@ -122,10 +130,11 @@ public class LavoisierListener extends ListenerAdapter {
      *
      * @param msg the overall message sent
      * @param parameter the parameter to set years
+     * @param section the section of exam we're querying
      *
      * @return a pair of years, lower and upper, or an error code {-1, -1}
      */
-    private int[] setYearRestriction(Message msg, String parameter) {
+    private int[] setYearRestriction(Message msg, String parameter, int section) {
         if(yearRestriction) {
             MessageChannel ch = msg.getChannel();
             ch.sendMessage("`Error: Invalid query [tried to set -y twice]. Query terminated.`").queue();
@@ -142,6 +151,7 @@ public class LavoisierListener extends ListenerAdapter {
             int lower = Integer.parseInt(years[0]);
             int upper = Integer.parseInt(years[0]);
 
+            // Check if they're querying a range
             if(years.length > 1) {
                 upper = Integer.parseInt(years[1]);
             }
@@ -152,9 +162,11 @@ public class LavoisierListener extends ListenerAdapter {
                 return ERROR_CODE;
             }
 
-            if(lower < 1999 || upper > 2020) {
+            if(lower < LOWER_YEARS[section] || upper > UPPER_YEARS[section]) {
                 MessageChannel ch = msg.getChannel();
-                ch.sendMessage("`Error: Invalid query [years not between 1999-2020]. Query terminated.`").queue();
+                ch.sendMessage("`Error: Invalid query [years not between "
+                        + LOWER_YEARS[section] + "-" +
+                        UPPER_YEARS[section] + " exam_type=" + section +"]. Query terminated.`").queue();
                 return ERROR_CODE;
             }
 
@@ -226,7 +238,9 @@ public class LavoisierListener extends ListenerAdapter {
                     "**$help:** Display the help page for all commands." +
                             "\n\n**$query [-s PART_CODE] [-y YEARS] [-p PROBLEMS]**: Query a USNCO Locals " +
                             "or Nationals problem. A part code, year range, or problem range is optional. For more " +
-                            "information, type `$help query`", null,
+                            "information, type `$help query`. The query command returns an embed containing " +
+                            "an image of the problem and various attributes. For more information on attributes, " +
+                            "type `$help attributes`.", null,
                     msg.getTimeCreated().plusSeconds(5), MESSAGE_COLOR, null, null,
                     AUTHOR_INFO, null, FOOTER, null, null);
 
@@ -236,10 +250,35 @@ public class LavoisierListener extends ListenerAdapter {
         else {
             String command = parameters[1];
 
-            if(!command.equals("query")) {
+            if(!command.equals("query") && !command.equals("attributes")) {
                 MessageChannel ch = msg.getChannel();
                 ch.sendMessage("The command you queried either does not have a" +
                         "help page or does not exist. For general help, type $help.").queue();
+            }
+            else if(command.equals("attributes")) {
+                MessageEmbed embed = new MessageEmbed(null, "*Query Attributes*",
+                        "*Attributes: Source, Problem, Answer, Difficulty, " +
+                                "Problem Image*" +
+                                "\n\nSource: the year and test type of the test. " +
+                                "For example, `2020 USNCO Nationals Part I`. Will " +
+                                "come in the format [year] USNCO [Locals, Nationals " +
+                                "Part I, or Nationals Part II]." +
+                                "\n\nProblem: The problem number for the problem (i.e. 60)" +
+                                "\n\nAnswer: An answer with spoiler tags for the problem, if the " +
+                                "problem is multiple choice (from Part I or Locals). For example," +
+                                "the answer could look like ||B||." +
+                                "\n\nDifficulty: There are five different difficulty ratings." +
+                                "\n\t\t * **Unrated**: There is no data on the difficulty on the problem." +
+                                "\n\t\t * **Easy**: On an exam, more than two-thirds of test takers got it right." +
+                                "\n\t\t * **Medium**: On an exam, over half of test takers got it right." +
+                                "\n\t\t * **Hard**: On an exam, less than half of test takers got it right." +
+                                "\n\t\t * **Insane**: On an exam, less than one-third of test takers got it right." +
+                                "\n\nBelow is an example image of a query result.", null,
+                        msg.getTimeCreated().plusSeconds(5), MESSAGE_COLOR, null, null,
+                        AUTHOR_INFO, null, FOOTER, EXAMPLE_IMAGE, null);
+
+                MessageChannel ch = msg.getChannel();
+                ch.sendMessage(embed).queue();
             }
             else {
                 MessageEmbed embed = new MessageEmbed(null, "*Query Problems*",
@@ -344,16 +383,16 @@ public class LavoisierListener extends ListenerAdapter {
             else {
                 double percent = Double.parseDouble(info[1].substring(0, info[1].length() - 1));
                 if(percent > 66.6) {
-                    fields.add(new MessageEmbed.Field(header[3], "Easy (>66%)", true));
+                    fields.add(new MessageEmbed.Field(header[3], "Easy (" + percent + "%)", true));
                 }
                 else if(percent > 50.0) {
-                    fields.add(new MessageEmbed.Field(header[3], "Normal (>50%)", true));
+                    fields.add(new MessageEmbed.Field(header[3], "Normal (" + percent + "%)", true));
                 }
                 else if(percent > 33.3) {
-                    fields.add(new MessageEmbed.Field(header[3], "Hard (<50%)", true));
+                    fields.add(new MessageEmbed.Field(header[3], "Hard (" + percent + "%)", true));
                 }
                 else {
-                    fields.add(new MessageEmbed.Field(header[3], "Insane (<33%)", true));
+                    fields.add(new MessageEmbed.Field(header[3], "Insane (" + percent +  "%)", true));
                 }
             }
         }
@@ -363,8 +402,7 @@ public class LavoisierListener extends ListenerAdapter {
 
         MessageEmbed.ImageInfo image = new MessageEmbed.ImageInfo(url, null, 1200, 673);
 
-        MessageEmbed embed = new MessageEmbed(null, null,
-                null, null,
+        MessageEmbed embed = new MessageEmbed(null, null, null, null,
                 msg.getTimeCreated().plusSeconds(5), MESSAGE_COLOR, null, null,
                 AUTHOR_INFO, null, FOOTER, image, fields);
 
@@ -391,10 +429,12 @@ public class LavoisierListener extends ListenerAdapter {
      *
      * @param msg the original message sent
      * @param parameter the parameter included in the message
+     * @param section the parameter included for the section
+     *
      * @return 0 if the method was successful, -1 if there was an error
      */
-    private int restrictYear(Message msg, String parameter) {
-        int[] years = setYearRestriction(msg, parameter);
+    private int restrictYear(Message msg, String parameter, int section) {
+        int[] years = setYearRestriction(msg, parameter, section);
 
         if (years[0] == ERROR_CODE[0]) {
             return -1;
@@ -429,13 +469,19 @@ public class LavoisierListener extends ListenerAdapter {
     /**
      * A method to restrict the test (local, part I, part II) our problems are queried from
      *
+     * @param msg the original message
      * @param parameter a parameter for problem query
      * @return the restricted section
      */
-    private int restrictSection(String parameter) {
+    private int restrictSection(Message msg, String parameter) {
         int sec = Integer.parseInt(parameter);
 
-        if(sec == 2) {
+        if(sec > 2) {
+            MessageChannel ch = msg.getChannel();
+            ch.sendMessage("`Error: Invalid query [section not 0-2]. Query terminated.`").queue();
+            return -1;
+        }
+        else if(sec == 2) {
             partTwo = true;
             upperProblem = 8;
         }
@@ -468,7 +514,7 @@ public class LavoisierListener extends ListenerAdapter {
 
             switch(currentOption) {
                 case 0:
-                    success = restrictYear(msg, parameter);
+                    success = restrictYear(msg, parameter, section);
                     currentOption = -1;
                     break;
                 case 1:
@@ -476,7 +522,9 @@ public class LavoisierListener extends ListenerAdapter {
                     currentOption = -1;
                     break;
                 case 2:
-                    section = restrictSection(parameter);
+                    section = restrictSection(msg, parameter);
+                    // If -1, we need to break to avoid errors
+                    success = section;
                     currentOption = -1;
                     break;
                 default:
@@ -494,9 +542,15 @@ public class LavoisierListener extends ListenerAdapter {
             }
         }
 
+        // Check if last command is in error
+        if(success == -1)
+            return;
+
         // Assign section if none selected
         if(section == -1) {
             section = rng.nextInt(2);
+            lowerYear = LOWER_YEARS[section];
+            upperYear = UPPER_YEARS[section];
         }
 
         int problem = getValue(lowerProblem, upperProblem);
