@@ -5,3 +5,6 @@ Public-facing repository for a discord bot to serve USNCO problems. Currently, f
  - [ ] Accept user input in terms of problem tagging, etc
  - [ ] Tag problems properly
  - [ ] Recreate statistics of past uses (easy, will be done soon)
+
+## Want to add this bot to your server?
+Use this link: https://discord.com/api/oauth2/authorize?client_id=771583825716838400&permissions=8&scope=bot
